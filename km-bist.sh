@@ -33,7 +33,7 @@ if_iqn_prefix=${fe_iqn%f*}
 function usage(){
 
             echo "Illegal number of parameters \n Parameters:"
-            echo "Usage: $0 -c {ifcreate | ifremove | sdpcreate | sdpremove | distribute}"
+            echo "Usage: $0 -c {ifcreate | ifremove | sdpcreate | sdpremove | distribute | iocreate}"
             echo "Example: $0 -c sdpcreate"
             exit 1
 }
