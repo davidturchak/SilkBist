@@ -14,7 +14,8 @@
 LOOPBACK='loopback'
 SSH_PWD='cluster_pwd'
 PMC_IP=$(ifconfig ib0 | grep 'inet addr' | tr ':' ' ' | awk '{print $3 }')
-SSH_CONN_STR="sshpass -p $SSH_PWD ssh -o StrictHostKeyChecking=no"
+SSH_CONN_STR="sshpass -p $SSH_PWD ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR"
+#SSH_CONN_STR="sshpass -p $SSH_PWD ssh -o StrictHostKeyChecking=no"
 LOCAL_DP_IP1=$(ifconfig eth6 | grep 'inet addr' | tr ':' ' ' | awk '{print $3 }')
 LOCAL_DP_IP2=$(ifconfig eth7 | grep 'inet addr' | tr ':' ' ' | awk '{print $3 }')
 MLOCAL_DP_IP1=${LOCAL_DP_IP1}*
@@ -33,7 +34,7 @@ if_iqn_prefix=${fe_iqn%f*}
 function usage(){
 
             echo "Illegal number of parameters \n Parameters:"
-            echo "Usage: $0 -c {ifcreate | ifremove | sdpcreate | sdpremove | distribute | iocreate}"
+            echo "Usage: $0 -c {allcreate | allremove | ifcreate | ifremove | sdpcreate | sdpremove | distribute | iocreate}"
             echo "Example: $0 -c sdpcreate"
             exit 1
 }
@@ -298,8 +299,92 @@ case ${CMD} in
 				echo "Creating input files for $cnode_ip"
 			        create_fio_input $cnode_ip
 			done
+			echo "Run the below for tilling:"
+                        printf './fio --client='
+                        printf "$PMC_IP,17582 tiling_$PMC_IP \n"
+
+			echo "Run the below for bw READ:"
+			printf './fio '
+			for cnode_ip in ${cnodes_ips}; do
+				printf -- --client=
+				printf "$cnode_ip,17582 bw_read_fio_${cnode_ip} "
+			done
+			printf "\n"
+                        echo "Run the below for iops READ:"
+                        printf './fio '
+                        for cnode_ip in ${cnodes_ips}; do
+                                printf -- --client=
+                                printf "$cnode_ip,17582 iops_read_fio_${cnode_ip} "
+                        done
+                        printf "\n"
+
 		fi
             	;;
-        *)
+        allcreate)
+		if pgrep -f mastat >/dev/null; then
+                        echo 'Starting distribute files'
+			get_num_of_cnodes
+                        distribute
+                	echo 'End of distribute files'
+			echo 'Starting sdpcreate'
+			create_hosts
+                        creare_and_map_vol
+			echo 'End of sdpcreate'
+			echo 'Starting iocreate'
+			for cnode_ip in ${cnodes_ips}; do
+                                echo "Executing ifcreation on $cnode_ip"
+                                ssh_execute $cnode_ip "localifcreate"
+				echo "End of ifcreate on $cnode_ip"
+				echo "Restarting FIO server on $cnode_ip"
+                                $SSH_CONN_STR -n -f $cnode_ip '/usr/bin/pkill -x screen'
+                                $SSH_CONN_STR $cnode_ip "screen -d -m /root/fio --server=$cnode_ip,17582"
+                                $SSH_CONN_STR $cnode_ip "/usr/bin/pgrep -x fio > /dev/null && echo "--client=$cnode_ip,17582" || echo "fio process is not running!""
+                                echo "Creating input files for $cnode_ip"
+                                create_fio_input $cnode_ip
+                        done
+			echo 'End of iocreate'
+			echo 'All done and ready for IO'
+			echo "Run the below for tilling:"
+			printf './fio --client='
+			printf "$PMC_IP,17582 tiling_$PMC_IP \n"
+			
+			echo "Run the below for bw READ:"
+                        printf './fio '
+                        for cnode_ip in ${cnodes_ips}; do
+                                printf -- --client=
+                                printf "$cnode_ip,17582 bw_read_fio_${cnode_ip} "
+                        done
+                        printf "\n"
+                        echo "Run the below for iops READ:"
+                        printf './fio '
+                        for cnode_ip in ${cnodes_ips}; do
+                                printf -- --client=
+                                printf "$cnode_ip,17582 iops_read_fio_${cnode_ip} "
+                        done
+                        printf "\n"
+		else 
+		   	echo 'Be sure running from PMC'
+			exit 1
+		fi
+		;;
+	allremove)
+                if pgrep -f mastat >/dev/null; then
+	              	echo 'Starting ifremove'
+			get_num_of_cnodes
+                        for cnode_ip in ${cnodes_ips}; do
+                                echo "Executing deletion on $cnode_ip"
+                                ssh_execute $cnode_ip "localifremove"
+                        done
+			echo 'End of ifremove'
+			echo 'Start sdpremove'
+			unmap_and_del_vol
+			echo 'End sdpremove'
+			echo 'All done'
+		else
+                        echo 'Be sure running from PMC'
+                        exit 1
+                fi
+                ;;
+	*)
             usage
 esac
